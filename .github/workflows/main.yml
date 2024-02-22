@@ -1,0 +1,49 @@
+name: Revert pushed release
+
+on: 
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'enter the release'
+        required: true
+        default: 'Head'
+
+jobs:
+  revert_release:
+    runs-on: ubuntu-latest
+    
+    steps: 
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          fetch-depth: 0
+
+      - name: Find Release SHA
+        id: out-hash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          git fetch --tags
+          release_name="${{ github.event.inputs.release }}"
+          sha=$(git rev-parse "refs/tags/$release_name")
+          echo $sha
+          echo "release-hash=$sha" >> $GITHUB_OUTPUT
+
+      - name: Revert pushed release
+        run: |
+          git rev-parse HEAD
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          echo "These're the reverted commits:-"
+          git log --pretty=format:"%H" ${{ steps.out-hash.outputs.release-hash }}..HEAD
+          git revert --no-edit -n -m 1 ${{ steps.out-hash.outputs.release-hash }}..HEAD
+          git commit -m "revert to release ${{ github.event.inputs.release }}"
+          git push
+
+      - name: Assign release tag
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          release_notes=$(gh release view ${{ github.event.inputs.release }} --json body --template "{{.body}}")
+          gh release create R${{ github.event.inputs.release }} --title "R${{ github.event.inputs.release }}" --notes "$release_notes"
